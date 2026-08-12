@@ -1,0 +1,57 @@
+# ─────────────────────────────────────────────────────────────────────────
+# Vendored third-party tools — NOT part of this repo.
+# scripts/setup.sh clones them at pinned commits and applies patches/.
+# ─────────────────────────────────────────────────────────────────────────
+/DynamicMPNN/
+/ProteinMPNN/
+/LigandMPNN/
+/boltz/
+/ProtFlow/
+
+# Model weights and large tool installs (fetched by setup.sh)
+/checkpoints/
+/tools_af2/
+
+# ─────────────────────────────────────────────────────────────────────────
+# Run artifacts. Full outputs (~2 GB/run) stay on the cluster; each run
+# directory carries run_provenance.json recording the config that made it.
+# results/ and figures/ are deliberately NOT ignored: they hold the small
+# curated subsets that back the report.
+# ─────────────────────────────────────────────────────────────────────────
+/outputs/
+/logs/
+*.log
+scratch/
+slurm-*.out
+
+# ─────────────────────────────────────────────────────────────────────────
+# Inputs: the specific target + decoy PDBs the configs reference ARE tracked.
+# Raw structures, MSA caches and scratch are not.
+# ─────────────────────────────────────────────────────────────────────────
+/inputs/*_raw.pdb
+/inputs/holo_combined.pdb
+/inputs/msa_cache/
+
+# ─────────────────────────────────────────────────────────────────────────
+# Python
+#
+# NOTE: do NOT add a bare `env/` rule here. This project keeps its conda/pip
+# specification in env/, and a bare `env/` silently swallows it — `git add env/`
+# then succeeds while staging nothing. Ignore virtualenvs by their real names.
+# ─────────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# ─────────────────────────────────────────────────────────────────────────
+# Editor / OS / secrets
+# ─────────────────────────────────────────────────────────────────────────
+.env
+*.orig
+*.rej
+.DS_Store
+.idea/
+.vscode/

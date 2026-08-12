@@ -1,0 +1,99 @@
+diff --git a/openfold/data/data_modules.py b/openfold/data/data_modules.py
+index e08b4d7..5d165c9 100644
+--- a/openfold/data/data_modules.py
++++ b/openfold/data/data_modules.py
+@@ -6,6 +6,7 @@ import os
+ import pickle
+ from typing import Optional, Sequence, List, Any
+ 
++from openfold.data import data_pipeline, feature_pipeline, mmcif_parsing
+ import ml_collections as mlc
+ import numpy as np
+ import pytorch_lightning as pl
+@@ -13,9 +14,6 @@ import torch
+ from torch.utils.data import RandomSampler
+ 
+ from openfold.data import (
+-    data_pipeline,
+-    feature_pipeline,
+-    mmcif_parsing,
+     templates,
+ )
+ from openfold.utils.tensor_utils import tensor_tree_map, dict_multimap
+diff --git a/openfold/data/data_pipeline.py b/openfold/data/data_pipeline.py
+index aa3aae6..b39d9a8 100644
+--- a/openfold/data/data_pipeline.py
++++ b/openfold/data/data_pipeline.py
+@@ -20,10 +20,13 @@ from typing import Mapping, Optional, Sequence, Any
+ 
+ import numpy as np
+ 
+-from openfold.data import templates, parsers, mmcif_parsing
+-from openfold.data.tools import jackhmmer, hhblits, hhsearch
++from openfold.data import mmcif_parsing, parsers
++from openfold.data import templates
++from openfold.data.tools import hhblits, hhsearch
++from openfold.data.tools import jackhmmer
+ from openfold.data.tools.utils import to_date 
+-from openfold.np import residue_constants, protein
++from openfold.np import protein
++from openfold.np import residue_constants
+ 
+ 
+ FeatureDict = Mapping[str, np.ndarray]
+diff --git a/openfold/data/templates.py b/openfold/data/templates.py
+index 260f36e..dbff04e 100644
+--- a/openfold/data/templates.py
++++ b/openfold/data/templates.py
+@@ -14,6 +14,7 @@
+ # limitations under the License.
+ 
+ """Functions for getting templates and calculating template features."""
++from openfold.data import mmcif_parsing
+ import dataclasses
+ import datetime
+ import glob
+@@ -25,7 +26,7 @@ from typing import Any, Dict, Mapping, Optional, Sequence, Tuple
+ 
+ import numpy as np
+ 
+-from openfold.data import parsers, mmcif_parsing
++from openfold.data import parsers
+ from openfold.data.errors import Error
+ from openfold.data.tools import kalign
+ from openfold.data.tools.utils import to_date
+diff --git a/openfold/np/relax/amber_minimize.py b/openfold/np/relax/amber_minimize.py
+index a832757..3df50fa 100644
+--- a/openfold/np/relax/amber_minimize.py
++++ b/openfold/np/relax/amber_minimize.py
+@@ -19,13 +19,14 @@ import io
+ import time
+ from typing import Collection, Optional, Sequence
+ 
++from openfold.np import protein
++from openfold.np.relax import cleanup
+ from absl import logging
+ from openfold.np import (
+-    protein,
+     residue_constants,
+ )
+ import openfold.utils.loss as loss
+-from openfold.np.relax import cleanup, utils
++from openfold.np.relax import utils
+ import ml_collections
+ import numpy as np
+ from simtk import openmm
+diff --git a/openfold/np/relax/relax.py b/openfold/np/relax/relax.py
+index 155e379..fdd6a21 100644
+--- a/openfold/np/relax/relax.py
++++ b/openfold/np/relax/relax.py
+@@ -16,7 +16,8 @@
+ """Amber relaxation."""
+ from typing import Any, Dict, Sequence, Tuple
+ from openfold.np import protein
+-from openfold.np.relax import amber_minimize, utils
++from openfold.np.relax import amber_minimize
++from openfold.np.relax import utils
+ import numpy as np
+ 
+ 

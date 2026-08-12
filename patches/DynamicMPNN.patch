@@ -1,0 +1,47 @@
+diff --git a/src/dynamicmpnn/scripts/foldseek/tm_foldseek.py b/src/dynamicmpnn/scripts/foldseek/tm_foldseek.py
+index 9629e0b..673fd4b 100644
+--- a/src/dynamicmpnn/scripts/foldseek/tm_foldseek.py
++++ b/src/dynamicmpnn/scripts/foldseek/tm_foldseek.py
+@@ -8,7 +8,7 @@ This module replaces USalign (TMalign/qTMclust) with Foldseek for:
+ Foldseek is faster and more robust than USalign for large-scale analysis.
+ """
+ 
+-from constants import (
++from dynamicmpnn.scripts.foldseek.constants import (
+     FOLDSEEK_BIN,
+     FOLDSEEK_CLUS_DIR,
+     FOLDSEEK_CLUS_DIR_MMSEQS2,
+diff --git a/src/dynamicmpnn/scripts/foldseek/tm_parse_foldseek.py b/src/dynamicmpnn/scripts/foldseek/tm_parse_foldseek.py
+index bd4ec63..6a2acdf 100644
+--- a/src/dynamicmpnn/scripts/foldseek/tm_parse_foldseek.py
++++ b/src/dynamicmpnn/scripts/foldseek/tm_parse_foldseek.py
+@@ -8,7 +8,7 @@ with downstream analysis.
+ Output format: {cluster_id: {"TM_avg": np.ndarray, "conformers": [str, ...]}}
+ """
+ 
+-from constants import FOLDSEEK_CLUS_DIR
++from dynamicmpnn.scripts.foldseek.constants import FOLDSEEK_CLUS_DIR
+ import pandas as pd
+ import numpy as np
+ from pathlib import Path
+diff --git a/src/dynamicmpnn/train.py b/src/dynamicmpnn/train.py
+index c3aa895..3fce17b 100644
+--- a/src/dynamicmpnn/train.py
++++ b/src/dynamicmpnn/train.py
+@@ -3,6 +3,7 @@ import sys
+ import os
+ from typing import List, Optional
+ from pathlib import Path
++from dynamicmpnn import constants, register_custom_omegaconf_resolvers
+ import graphein
+ import hydra
+ import pytorch_lightning as L
+@@ -16,7 +17,7 @@ from omegaconf import DictConfig, OmegaConf
+ from dotenv import load_dotenv
+ from hydra import compose, initialize
+ 
+-from dynamicmpnn import constants, utils, register_custom_omegaconf_resolvers
++from dynamicmpnn import utils
+ from dynamicmpnn.modules.models.lightning_module import DynamicMPNNModule
+ 
+ load_dotenv(constants.REPO_ROOT / ".env", override=False)

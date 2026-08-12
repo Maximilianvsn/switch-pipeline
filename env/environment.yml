@@ -1,0 +1,25 @@
+# Orchestrator environment for the switch pipeline (the `protflow` env).
+# This is the env that runs src/switch_pipeline.py; it shells out to the
+# other tools, which live in their OWN envs (see README "Environments"):
+#   - ligandmpnn_env : LigandMPNN / ProteinMPNN-MSD  (config: proteinmpnn_msd.python)
+#   - BindCraft      : AF2 initial-guess gate        (config: af2.bindcraft_env)
+#
+# Versions below are a minimal, working baseline — for an exact reproduction of
+# a validated run, regenerate from the machine with:  conda env export --no-builds
+name: protflow
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.11
+  - numpy
+  - pandas
+  - pyyaml
+  - scipy
+  - biopython
+  - pip
+  - pytest
+  - pip:
+      # ProtFlow is installed editable from the clone made by scripts/setup.sh:
+      #   pip install -e ./ProtFlow
+      - -e ./ProtFlow

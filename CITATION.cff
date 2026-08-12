@@ -1,0 +1,26 @@
+cff-version: 1.2.0
+title: >-
+  switch-pipeline: de novo design of a single sequence compatible
+  with two target-bound conformations
+message: If you use this software, please cite it as below.
+type: software
+authors:
+  - family-names: Vassen
+    given-names: Maximilian
+repository-code: https://github.com/Maximilianvsn/switch-pipeline
+license: MIT
+abstract: >-
+  A design pipeline that generates a state-1 binder backbone with
+  RFdiffusion3, derives a second state by partial diffusion, and designs one
+  sequence tied across both states with DynamicMPNN (with ProteinMPNN-MSD as
+  an equal-budget comparator). Candidates are selected by an AlphaFold2
+  initial-guess two-state gate calibrated against paired,
+  composition-matched scramble nulls, then scored with Boltz-2. All reported
+  metrics are predictor confidence, not affinity or free energy.
+keywords:
+  - protein design
+  - de novo binder design
+  - multi-state design
+  - RFdiffusion
+  - AlphaFold2
+  - null calibration

@@ -1,0 +1,22 @@
+{
+  "pdl1": {
+    "pdb": "pdl1_igv.pdb",
+    "hotspots": [
+      "A56",
+      "A58",
+      "A113",
+      "A115"
+    ],
+    "note": "PD-L1 IgV PD-1 binding interface"
+  },
+  "pcna": {
+    "pdb": "pcna_A.pdb",
+    "hotspots": [
+      "A251",
+      "A252",
+      "A253",
+      "A255"
+    ],
+    "note": "PCNA PIP-box hydrophobic groove"
+  }
+}

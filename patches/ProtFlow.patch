@@ -1,0 +1,726 @@
+diff --git a/dev_tools/runner_template.py b/dev_tools/runner_template.py
+index 8db37a6..ee9681a 100644
+--- a/dev_tools/runner_template.py
++++ b/dev_tools/runner_template.py
+@@ -26,10 +26,10 @@ from glob import glob
+ 
+ import pandas as pd
+ 
+-from protflow import load_config_path, require_config
+-from protflow.jobstarters import JobStarter
+-from protflow.poses import Poses
+-from protflow.runners import (
++from Workspace_Maxi.MLfBW.ProtFlow.protflow import load_config_path, require_config
++from Workspace_Maxi.MLfBW.ProtFlow.protflow.jobstarters import JobStarter
++from Workspace_Maxi.MLfBW.ProtFlow.protflow.poses import Poses
++from Workspace_Maxi.MLfBW.ProtFlow.protflow.runners import (
+     Runner,
+     RunnerOutput,
+     parse_generic_options,
+diff --git a/protflow/config_template.py b/protflow/config_template.py
+index a27de10..64c15f0 100644
+--- a/protflow/config_template.py
++++ b/protflow/config_template.py
+@@ -36,7 +36,7 @@ RFDIFFUSION_PRE_CMD = ""
+ 
+ # rfdiffusion3.py
+ RFDIFFUSION3_SCRIPT_PATH = "" # "/path/to/miniconda3/envs/RFD3/bin/rfd3"
+-RFDIFFUSION3_PYTHON_PATH = "" # "/path/to/miniconda3/envs/RFD3/bin/python"
++RFDIFFUSION3_PYTHON_PATH = "" # "/home/hd/hd_hd/hd_la299/.conda/envs/foundry"
+ RFDIFFUSION3_PRE_CMD = ""
+ 
+ 
+diff --git a/protflow/jobstarters.py b/protflow/jobstarters.py
+index 067cc68..6c9bfbd 100644
+--- a/protflow/jobstarters.py
++++ b/protflow/jobstarters.py
+@@ -269,8 +269,8 @@ class SbatchArrayJobstarter(JobStarter):
+         log_file = os.path.join(output_path, f"{jobname}_slurm.out")
+         error_file = os.path.join(output_path, f"{jobname}_slurm.err")
+ 
+-        self.options += f" -vvv -e {error_file} -o {log_file} --open-mode=append"
+-        sbatch_cmd = f'sbatch -a 1-{str(len(cmds))}%{str(self.max_cores)} -J {jobname} {self.options} --wrap "eval {chr(92)}`sed -n {chr(92)}${{SLURM_ARRAY_TASK_ID}}p {cmdfile}{chr(92)}`"'
++        run_options = f"{self.options} -e {error_file} -o {log_file} --open-mode=append"
++        sbatch_cmd = f'sbatch -a 1-{str(len(cmds))}%{str(self.max_cores)} -J {jobname} {run_options} --wrap "eval {chr(92)}`sed -n {chr(92)}${{SLURM_ARRAY_TASK_ID}}p {cmdfile}{chr(92)}`"'
+ 
+         # save last job name, e.g. for timer wrapper
+         self.last_job_name = jobname
+@@ -334,7 +334,8 @@ class SbatchArrayJobstarter(JobStarter):
+         """
+         self.options = self.parse_options(options)
+         if gpus:
+-            self.options += f"--gpus-per-node {gpus}"
++            n_gpus = gpus if isinstance(gpus, int) and not isinstance(gpus, bool) else 1
++            self.options += f" --gpus-per-node {n_gpus}"
+ 
+     def wait_for_job(self, jobname: str, interval: float = 5) -> None:
+         """
+diff --git a/protflow/metrics/__init__.py b/protflow/metrics/__init__.py
+index 2fee815..cebecfa 100644
+--- a/protflow/metrics/__init__.py
++++ b/protflow/metrics/__init__.py
+@@ -1,5 +1,5 @@
+ """protflow.metrics subpackage init"""
+-from . import biopython_metrics, dssp, fpocket, generic_metric_runner, ligand, propka, protparam, rmsd, selection_identity, tmscore
++from protflow.metrics import biopython_metrics, dssp, fpocket, generic_metric_runner, ligand, propka, protparam, rmsd, selection_identity, tmscore
+ 
+ # import runners directly
+ from .biopython_metrics import Angle, BiopythonMetric, BiopythonMetricRunner, Dihedral, Distance, PlaneAngle
+diff --git a/protflow/metrics/dssp.py b/protflow/metrics/dssp.py
+index 9fdbbcb..5300002 100644
+--- a/protflow/metrics/dssp.py
++++ b/protflow/metrics/dssp.py
+@@ -33,8 +33,10 @@ import glob
+ # import dependencies
+ import pandas as pd
+ 
++from .. import jobstarters
++
+ # import customs
+-from .. import jobstarters, require_config, load_config_path
++from .. import require_config, load_config_path
+ from ..poses import Poses
+ from ..poses import description_from_path
+ from ..runners import Runner, RunnerOutput
+diff --git a/protflow/metrics/rmsd.py b/protflow/metrics/rmsd.py
+index 018ace3..4f872ca 100644
+--- a/protflow/metrics/rmsd.py
++++ b/protflow/metrics/rmsd.py
+@@ -74,12 +74,14 @@ from typing import Any
+ # import dependencies
+ import pandas as pd
+ 
++from .. import jobstarters
++
+ # import customs
+ from ..poses import Poses
+ from ..residues import AtomSelection, AtomSelectionInput, ResidueSelection
+ from ..jobstarters import JobStarter, split_list
+ from ..runners import Runner, RunnerOutput, col_in_df
+-from .. import jobstarters, load_config_path, require_config
++from .. import load_config_path, require_config
+ 
+ 
+ def _setup_atom_selection_list(
+diff --git a/protflow/metrics/tmscore.py b/protflow/metrics/tmscore.py
+index 5cb9d61..ef5e849 100644
+--- a/protflow/metrics/tmscore.py
++++ b/protflow/metrics/tmscore.py
+@@ -100,12 +100,14 @@ import glob
+ # import dependencies
+ import pandas as pd
+ 
++from .. import jobstarters, runners
++
+ # import customs
+ from ..poses import Poses
+ from ..jobstarters import JobStarter
+ from ..utils.metrics import calc_sc_tm
+ from ..runners import Runner, RunnerOutput, col_in_df
+-from .. import jobstarters, runners, load_config_path, require_config
++from .. import load_config_path, require_config
+ 
+ class TMalign(Runner):
+     """
+diff --git a/protflow/tools/__init__.py b/protflow/tools/__init__.py
+index 8415367..21bd3a4 100644
+--- a/protflow/tools/__init__.py
++++ b/protflow/tools/__init__.py
+@@ -1,8 +1,8 @@
+ '''runners submodule init'''
+ # import submodules
+-from . import alphafold3, attnpacker, boltz, colabfold, esmfold, gnina
+-from . import gromacs, ligandmpnn, placer, protein_edits, protein_generator
+-from . import residue_selectors, rfdiffusion, rosetta, esm, rfdiffusion3, sigmadock
++from protflow.tools import alphafold3, attnpacker, boltz, colabfold, esmfold, gnina
++from protflow.tools import gromacs, ligandmpnn, placer, protein_edits, protein_generator
++from protflow.tools import residue_selectors, rfdiffusion, rosetta, esm, rfdiffusion3, sigmadock, dynamicmpnn
+ 
+ # import runners, so we don't have to get them through submodules all the time
+ from .alphafold3 import AlphaFold3
+@@ -23,3 +23,4 @@ from .sigmadock import SigmaDock
+ from .protein_edits import ChainAdder, ChainRemover, SequenceAdder, SequenceRemover
+ from .minifold import Minifold
+ from .caliby import CalibySequenceDesign, CalibyEnsembleSeqDesign, CalibyEnsembleGenerator
++from .dynamicmpnn import DynamicMPNN
+diff --git a/protflow/tools/alphafold3.py b/protflow/tools/alphafold3.py
+index d643be0..63728c9 100644
+--- a/protflow/tools/alphafold3.py
++++ b/protflow/tools/alphafold3.py
+@@ -82,8 +82,10 @@ from typing import Union, Any
+ # dependencies
+ import pandas as pd
+ 
++from .. import runners
++
+ # custom
+-from .. import require_config, load_config_path, runners
++from .. import require_config, load_config_path
+ from ..runners import Runner, RunnerOutput, prepend_cmd
+ from ..poses import Poses, col_in_df, description_from_path
+ from ..jobstarters import JobStarter, split_list
+diff --git a/protflow/tools/boltz.py b/protflow/tools/boltz.py
+index 7aada13..a565b5c 100644
+--- a/protflow/tools/boltz.py
++++ b/protflow/tools/boltz.py
+@@ -62,6 +62,7 @@ import os
+ import json
+ import shutil
+ import logging
++import time
+ from glob import glob
+ from pathlib import Path
+ 
+@@ -523,7 +524,20 @@ class Boltz(Runner):
+         )
+ 
+         # collect scores
++        # Retried: this runs right after jobstarter.start() sees the array job
++        # leave the queue, but on a shared GPFS filesystem the compute nodes'
++        # writes can lag a few seconds behind what the calling node's own
++        # directory listing sees. Reproduced directly -- calling
++        # collect_boltz_scores() again, unchanged, against a directory that
++        # had just returned empty succeeded immediately on the retry. Without
++        # this, a transient empty read here raised and killed the whole
++        # orchestrator process, discarding an entire run.
+         scores = collect_boltz_scores(boltz_out_dir)
++        for attempt in range(5):
++            if len(scores) > 0:
++                break
++            time.sleep(5)
++            scores = collect_boltz_scores(boltz_out_dir)
+ 
+         # output safety
+         if len(scores) == 0:
+@@ -1032,8 +1046,9 @@ class BoltzParams:
+         def _parse_dict_for_pose(pose: pd.Series, entity_dict: dict) -> dict:
+             '''Fills in values from pose.df if values have "pose_col" set to true.'''
+             parsed_dict = {
+-                key: pose[val] if is_pose_col else val # selects value from pose.df if pose_col was specified.
++                key: pose[val] if is_pose_col else val
+                 for key, (val, is_pose_col) in entity_dict.items()
++                if not (val is None and not is_pose_col)
+             }
+             return parsed_dict
+ 
+diff --git a/protflow/tools/colabfold.py b/protflow/tools/colabfold.py
+index 9db9f81..4270ff9 100644
+--- a/protflow/tools/colabfold.py
++++ b/protflow/tools/colabfold.py
+@@ -75,8 +75,10 @@ from glob import glob
+ import pandas as pd
+ import numpy as np
+ 
++from .. import runners
++
+ # custom
+-from .. import require_config, load_config_path, runners
++from .. import require_config, load_config_path
+ from ..runners import Runner, RunnerOutput, prepend_cmd
+ from ..poses import Poses, col_in_df
+ from ..jobstarters import JobStarter
+diff --git a/protflow/tools/esm.py b/protflow/tools/esm.py
+index 4541774..8eb41f2 100644
+--- a/protflow/tools/esm.py
++++ b/protflow/tools/esm.py
+@@ -8,8 +8,10 @@ from glob import glob
+ import pandas as pd
+ import numpy as np
+ 
++from .. import runners
++
+ # customs
+-from .. import load_config_path, require_config, runners
++from .. import load_config_path, require_config
+ from ..jobstarters import split_list
+ from ..runners import Runner, RunnerOutput
+ from ..jobstarters import JobStarter
+diff --git a/protflow/tools/esmfold.py b/protflow/tools/esmfold.py
+index bc18e91..c67cefd 100644
+--- a/protflow/tools/esmfold.py
++++ b/protflow/tools/esmfold.py
+@@ -75,7 +75,8 @@ import numpy as np
+ import pandas as pd
+ 
+ # custom
+-from protflow import require_config, load_config_path, runners
++from protflow import load_config_path, require_config
++from protflow import runners
+ from protflow.poses import Poses
+ from ..runners import Runner, RunnerOutput, prepend_cmd
+ from ..jobstarters import JobStarter
+diff --git a/protflow/tools/gromacs.py b/protflow/tools/gromacs.py
+index ff94522..dba5a6d 100644
+--- a/protflow/tools/gromacs.py
++++ b/protflow/tools/gromacs.py
+@@ -14,8 +14,8 @@ from protflow.jobstarters import JobStarter
+ from protflow.utils import biopython_tools as bpt
+ 
+ # locals
+-from .. import poses as ps
+-from .. import runners, load_config_path, require_config
++from .. import poses as ps, runners
++from .. import load_config_path, require_config
+ 
+ class Gromacs(Runner):
+     '''Class Docs'''
+diff --git a/protflow/tools/ligandmpnn.py b/protflow/tools/ligandmpnn.py
+index 92ab36e..ce2c60e 100644
+--- a/protflow/tools/ligandmpnn.py
++++ b/protflow/tools/ligandmpnn.py
+@@ -80,7 +80,8 @@ import Bio
+ import Bio.SeqIO
+ 
+ # custom
+-from protflow import require_config, load_config_path, jobstarters
++from protflow import load_config_path, require_config
++from protflow import jobstarters
+ from protflow.residues import ResidueSelection
+ from protflow.poses import Poses
+ from protflow.jobstarters import JobStarter
+diff --git a/protflow/tools/minifold.py b/protflow/tools/minifold.py
+index 9dbe1dc..bb9435d 100644
+--- a/protflow/tools/minifold.py
++++ b/protflow/tools/minifold.py
+@@ -74,7 +74,8 @@ import numpy as np
+ import pandas as pd
+ 
+ # custom
+-from protflow import require_config, load_config_path, runners
++from protflow import load_config_path, require_config
++from protflow import runners
+ from protflow.poses import Poses, description_from_path
+ from ..runners import Runner, RunnerOutput, prepend_cmd
+ from ..jobstarters import JobStarter
+diff --git a/protflow/tools/protein_edits.py b/protflow/tools/protein_edits.py
+index 7018c28..59828e0 100644
+--- a/protflow/tools/protein_edits.py
++++ b/protflow/tools/protein_edits.py
+@@ -80,12 +80,14 @@ import json
+ # dependencies
+ import pandas as pd
+ 
++from .. import jobstarters
++
+ # customs
+ from ..poses import Poses
+ from ..residues import ResidueSelection
+ from ..jobstarters import JobStarter, split_list
+ from ..runners import Runner, RunnerOutput, col_in_df
+-from .. import jobstarters, require_config, load_config_path
++from .. import require_config, load_config_path
+ from ..utils.utils import parse_fasta_to_dict, _mutually_exclusive
+ from ..utils.biopython_tools import load_structure_from_pdbfile
+ 
+diff --git a/protflow/tools/rfdiffusion3.py b/protflow/tools/rfdiffusion3.py
+index d5919b9..34162d1 100644
+--- a/protflow/tools/rfdiffusion3.py
++++ b/protflow/tools/rfdiffusion3.py
+@@ -91,6 +91,7 @@ from __future__ import annotations
+ import json
+ import logging
+ import os
++import time
+ from glob import glob
+ import gzip
+ import shutil
+@@ -1875,14 +1876,37 @@ def collect_scores(work_dir: str, cif_to_pdb: bool = True, run_clean: bool=True)
+     directory = Path(output_dir)
+     pattern = r"batch.*?_"
+ 
+-
+-    # rename paths and jsons to remove prefix derived from json input
+-    for file_path in directory.iterdir():
+-        if file_path.is_file():
+-            new_name = re.sub(pattern, "", file_path.name)
+-            file_path.rename(file_path.with_name(new_name))
+-
+-    output_jsons = glob(os.path.join(output_dir, "*.json"))
++    # Retry the directory listing a few times before giving up: on a shared
++    # GPFS filesystem, this function is called right after the submitting
++    # jobstarter sees the array job leave the queue, but the compute nodes'
++    # writes (across potentially dozens of parallel batches) can lag behind
++    # what the calling node's directory listing sees by a few seconds.
++    # Reproduced directly: calling this same function again, unchanged,
++    # against a directory that had just produced an empty read succeeded
++    # immediately. Without this, a transient empty listing here raises
++    # (via the "DataFrame without columns" path below) and kills the whole
++    # orchestrator process, discarding an entire run.
++    output_jsons = []
++    for attempt in range(6):
++        # rename paths and jsons to remove prefix derived from json input
++        for file_path in directory.iterdir():
++            if file_path.is_file():
++                new_name = re.sub(pattern, "", file_path.name)
++                file_path.rename(file_path.with_name(new_name))
++
++        output_jsons = glob(os.path.join(output_dir, "*.json"))
++        if output_jsons:
++            break
++        if attempt < 5:
++            time.sleep(5)
++
++    if not output_jsons:
++        raise FileNotFoundError(
++            f"RFdiffusion3.collect_scores: no .json outputs found in {output_dir} "
++            f"after 6 attempts (~25s) -- check the array job's own logs in {work_dir}, "
++            f"this is a genuine empty result, not the transient listing delay this retry "
++            f"loop is meant to absorb."
++        )
+ 
+     data = []
+     # iterate over jsons because additional cif files might be there if dump_trajectories is true
+diff --git a/protflow/tools/runners_auxiliary_scripts/esmfold_inference.py b/protflow/tools/runners_auxiliary_scripts/esmfold_inference.py
+index 470cf0d..db36dbd 100755
+--- a/protflow/tools/runners_auxiliary_scripts/esmfold_inference.py
++++ b/protflow/tools/runners_auxiliary_scripts/esmfold_inference.py
+@@ -12,7 +12,7 @@ import os
+ 
+ import torch
+ 
+-import esm
++import protflow.tools.esm as esm
+ from esm.data import read_fasta
+ from timeit import default_timer as timer
+ 
+diff --git a/protflow/tools/runners_auxiliary_scripts/run_esm.py b/protflow/tools/runners_auxiliary_scripts/run_esm.py
+index 0958914..17d0c49 100644
+--- a/protflow/tools/runners_auxiliary_scripts/run_esm.py
++++ b/protflow/tools/runners_auxiliary_scripts/run_esm.py
+@@ -6,7 +6,7 @@ import pathlib
+ # dependencies
+ import torch
+ import numpy as np
+-from esm import Alphabet, FastaBatchedDataset, ProteinBertModel, pretrained, MSATransformer # NOTE: esm must be installed to run this script
++from protflow.tools.esm import Alphabet, FastaBatchedDataset, ProteinBertModel, pretrained, MSATransformer # NOTE: esm must be installed to run this script
+ from protflow.utils.metrics import entropy
+ 
+ 
+diff --git a/protflow/utils/__init__.py b/protflow/utils/__init__.py
+index 9dd2920..2d253cb 100644
+--- a/protflow/utils/__init__.py
++++ b/protflow/utils/__init__.py
+@@ -1,2 +1,2 @@
+ '''Init of protflow.utils'''
+-from . import biopython_tools, metrics, openbabel_tools, plotting, pymol_tools, utils
++from protflow.utils import biopython_tools, metrics, openbabel_tools, plotting, pymol_tools, utils
+diff --git a/scripts/batch_download_rcsb_query.py b/scripts/batch_download_rcsb_query.py
+index 2e2b7ed..f066b90 100644
+--- a/scripts/batch_download_rcsb_query.py
++++ b/scripts/batch_download_rcsb_query.py
+@@ -11,7 +11,7 @@ import requests
+ import pandas as pd
+ 
+ # custom
+-import protflow
++import Workspace_Maxi.MLfBW.ProtFlow.protflow as protflow
+ 
+ def compile_pagination(n_rows: int, rows_per_page: int = 500) -> list[tuple[int, int]]:
+     '''compiles pagination for query chaining.'''
+diff --git a/scripts/predict_cleavage_variants.py b/scripts/predict_cleavage_variants.py
+index 8edc933..4acbd2d 100755
+--- a/scripts/predict_cleavage_variants.py
++++ b/scripts/predict_cleavage_variants.py
+@@ -7,11 +7,11 @@ from itertools import combinations
+ import os
+ 
+ # dependencies
+-from protflow import jobstarters
+-from protflow.poses import Poses
+-from protflow.residues import ResidueSelection
++from Workspace_Maxi.MLfBW.ProtFlow.protflow import jobstarters
++from Workspace_Maxi.MLfBW.ProtFlow.protflow.poses import Poses
++from Workspace_Maxi.MLfBW.ProtFlow.protflow.residues import ResidueSelection
+ from protflow.tools.alphafold2 import Alphafold2
+-from protflow.utils.biopython_tools import get_sequence_from_pose, load_structure_from_pdbfile
++from Workspace_Maxi.MLfBW.ProtFlow.protflow.utils.biopython_tools import get_sequence_from_pose, load_structure_from_pdbfile
+ 
+ def read_fasta(input_str: str, sep: str) -> dict:
+     '''Reads fasta file with singular fasta inside and returns as dict {chain: seq(chain), ...}'''
+diff --git a/scripts/predict_protein_ligand.py b/scripts/predict_protein_ligand.py
+index 6ff3df6..a8d3d96 100644
+--- a/scripts/predict_protein_ligand.py
++++ b/scripts/predict_protein_ligand.py
+@@ -8,10 +8,10 @@ from glob import glob
+ 
+ # dependencies
+ import pandas as pd
+-import protflow
+-from protflow.tools.alphafold3 import AlphaFold3
+-from protflow.runners import Runner
+-from protflow.poses import Poses
++import Workspace_Maxi.MLfBW.ProtFlow.protflow as protflow
++from Workspace_Maxi.MLfBW.ProtFlow.protflow.tools.alphafold3 import AlphaFold3
++from Workspace_Maxi.MLfBW.ProtFlow.protflow.runners import Runner
++from Workspace_Maxi.MLfBW.ProtFlow.protflow.poses import Poses
+ 
+ def predict_per_day(model: Runner, files: list, predictions_per_day: int, output_dir: str, smiles: str, samples: int, options: str = None) -> None:
+     """Predicts """
+diff --git a/scripts/pymol_visualize_mutations.py b/scripts/pymol_visualize_mutations.py
+index 8f1e31f..aaecffc 100644
+--- a/scripts/pymol_visualize_mutations.py
++++ b/scripts/pymol_visualize_mutations.py
+@@ -8,7 +8,7 @@ import logging
+ import argparse
+ 
+ # dependencies
+-import protflow.utils.biopython_tools as bio_tools
++import Workspace_Maxi.MLfBW.ProtFlow.protflow.utils.biopython_tools as bio_tools
+ from protflow.utils import metrics
+ from protflow.utils import pymol_tools
+ 
+diff --git a/tests/pytest/test_atom_selection.py b/tests/pytest/test_atom_selection.py
+index ae71913..0760af3 100644
+--- a/tests/pytest/test_atom_selection.py
++++ b/tests/pytest/test_atom_selection.py
+@@ -1,4 +1,4 @@
+-from protflow.residues import AtomSelection
++from Workspace_Maxi.MLfBW.ProtFlow.protflow.residues import AtomSelection
+ 
+ 
+ def _pdb_line(record, serial, atom_name, resname, chain, resseq, x, y, z, element):
+diff --git a/tests/pytest/test_jobstarters.py b/tests/pytest/test_jobstarters.py
+index 39c6ffc..8758742 100644
+--- a/tests/pytest/test_jobstarters.py
++++ b/tests/pytest/test_jobstarters.py
+@@ -5,8 +5,8 @@ import time
+ import pytest
+ 
+ # customs
+-import protflow
+-from protflow.jobstarters import split_list, add_timestamp
++import Workspace_Maxi.MLfBW.ProtFlow.protflow as protflow
++from Workspace_Maxi.MLfBW.ProtFlow.protflow.jobstarters import split_list, add_timestamp
+ 
+ def test_split_list():
+     tl1 = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+diff --git a/tests/pytest/test_poses.py b/tests/pytest/test_poses.py
+index 36a055b..203c8d4 100644
+--- a/tests/pytest/test_poses.py
++++ b/tests/pytest/test_poses.py
+@@ -11,8 +11,8 @@ from unittest.mock import patch, MagicMock
+ # dependencies
+ 
+ # custom
+-from protflow.poses import Poses
+-from protflow.poses import description_from_path, filter_dataframe_by_value, filter_dataframe_by_rank, col_in_df, load_poses, get_format, combine_dataframe_score_columns, scale_series, normalize_series, class_in_df
++from Workspace_Maxi.MLfBW.ProtFlow.protflow.poses import Poses
++from Workspace_Maxi.MLfBW.ProtFlow.protflow.poses import description_from_path, filter_dataframe_by_value, filter_dataframe_by_rank, col_in_df, load_poses, get_format, combine_dataframe_score_columns, scale_series, normalize_series, class_in_df
+ 
+ ####################### variables ##############################
+ @pytest.fixture
+@@ -491,7 +491,7 @@ def test_check_prefix_conflicts_and_invalid():
+ 
+ def test_split_multiline_fasta_writes_files_and_returns_paths(tmp_path, monkeypatch):
+     # mock parse_fasta_to_dict to simulate two sequences + special chars in headers
+-    from protflow import poses as poses_mod
++    from Workspace_Maxi.MLfBW.ProtFlow.protflow import poses as poses_mod
+     monkeypatch.setattr(poses_mod, "parse_fasta_to_dict", lambda path, encoding="UTF-8": {
+         "A/1|x": "AAAA",
+         "B-2 x": "BBBB"
+@@ -507,7 +507,7 @@ def test_split_multiline_fasta_writes_files_and_returns_paths(tmp_path, monkeypa
+ 
+ 
+ def test_split_multiline_fasta_without_workdir_raises(monkeypatch):
+-    from protflow import poses as poses_mod
++    from Workspace_Maxi.MLfBW.ProtFlow.protflow import poses as poses_mod
+     # Mock out the FASTA parser so it doesn't try to read a real file
+     monkeypatch.setattr(
+         poses_mod, 
+@@ -637,7 +637,7 @@ def test_reindex_poses_force_and_conflict(tmp_path, sample_df):
+ 
+ def test_set_poses_df_triggers_resselection_conversion_str_and_dict(monkeypatch):
+     # Patch the class used inside convert_resselection_cols
+-    from protflow import poses as poses_mod
++    from Workspace_Maxi.MLfBW.ProtFlow.protflow import poses as poses_mod
+     monkeypatch.setattr(poses_mod, "ResidueSelection", DummyRS)
+ 
+     df = pd.DataFrame({
+@@ -661,7 +661,7 @@ def test_set_poses_df_triggers_resselection_conversion_str_and_dict(monkeypatch)
+     assert p.df.at[0, "motif_residues"].from_scorefile is True
+ 
+ def test_set_poses_df_stringified_selector_is_parsed(monkeypatch):
+-    from protflow import poses as poses_mod
++    from Workspace_Maxi.MLfBW.ProtFlow.protflow import poses as poses_mod
+     monkeypatch.setattr(poses_mod, "ResidueSelection", DummyRS)
+ 
+     df = pd.DataFrame({
+@@ -680,7 +680,7 @@ def test_set_poses_df_stringified_selector_is_parsed(monkeypatch):
+     assert p.df.at[0, "motif_residues"].value == "B5-B9"
+ 
+ def test_convert_resselection_cols_missing_target_column_warns_and_skips(monkeypatch, caplog):
+-    from protflow import poses as poses_mod
++    from Workspace_Maxi.MLfBW.ProtFlow.protflow import poses as poses_mod
+     monkeypatch.setattr(poses_mod, "ResidueSelection", DummyRS)
+ 
+     df = pd.DataFrame({
+@@ -700,7 +700,7 @@ def test_convert_resselection_cols_missing_target_column_warns_and_skips(monkeyp
+     assert any("Could not find column nope" in rec.message for rec in caplog.records)
+ 
+ def test_convert_resselection_cols_selector_wrong_type_raises(monkeypatch):
+-    from protflow import poses as poses_mod
++    from Workspace_Maxi.MLfBW.ProtFlow.protflow import poses as poses_mod
+     monkeypatch.setattr(poses_mod, "ResidueSelection", DummyRS)
+ 
+     df = pd.DataFrame({
+@@ -716,7 +716,7 @@ def test_convert_resselection_cols_selector_wrong_type_raises(monkeypatch):
+         p.set_poses(df)
+ 
+ def test_convert_resselection_cols_malformed_stringified_selector_raises(monkeypatch):
+-    from protflow import poses as poses_mod
++    from Workspace_Maxi.MLfBW.ProtFlow.protflow import poses as poses_mod
+     monkeypatch.setattr(poses_mod, "ResidueSelection", DummyRS)
+ 
+     df = pd.DataFrame({
+@@ -732,7 +732,7 @@ def test_convert_resselection_cols_malformed_stringified_selector_raises(monkeyp
+         p.set_poses(df)
+     
+ def test_convert_resselection_cols_skips_falsy_and_keeps_existing_instances(monkeypatch):
+-    from protflow import poses as poses_mod
++    from Workspace_Maxi.MLfBW.ProtFlow.protflow import poses as poses_mod
+     monkeypatch.setattr(poses_mod, "ResidueSelection", DummyRS)
+ 
+     already = DummyRS("A2")  # will be left as-is
+@@ -754,7 +754,7 @@ def test_convert_resselection_cols_skips_falsy_and_keeps_existing_instances(monk
+     assert p.df.at[1, "fixed_residues"] is None
+ 
+ def test_convert_resselection_cols_absent_selector_col_is_noop(monkeypatch):
+-    from protflow import poses as poses_mod
++    from Workspace_Maxi.MLfBW.ProtFlow.protflow import poses as poses_mod
+     monkeypatch.setattr(poses_mod, "ResidueSelection", DummyRS)
+ 
+     df = pd.DataFrame({
+diff --git a/tests/pytest/test_rfdiffusion3_remap.py b/tests/pytest/test_rfdiffusion3_remap.py
+index 3e618af..993174c 100644
+--- a/tests/pytest/test_rfdiffusion3_remap.py
++++ b/tests/pytest/test_rfdiffusion3_remap.py
+@@ -3,8 +3,8 @@ import logging
+ import pandas as pd
+ import pytest
+ 
+-from protflow.residues import AtomSelection, ResidueSelection
+-from protflow.tools.rfdiffusion3 import remap_rfd3_motifs
++from Workspace_Maxi.MLfBW.ProtFlow.protflow.residues import AtomSelection, ResidueSelection
++from Workspace_Maxi.MLfBW.ProtFlow.protflow.tools.rfdiffusion3 import remap_rfd3_motifs
+ 
+ 
+ class _Poses:
+diff --git a/tests/pytest/test_rosetta_collect_scores.py b/tests/pytest/test_rosetta_collect_scores.py
+index 1c6aef7..adbefa5 100644
+--- a/tests/pytest/test_rosetta_collect_scores.py
++++ b/tests/pytest/test_rosetta_collect_scores.py
+@@ -1,7 +1,7 @@
+ import logging
+ import json
+ 
+-from protflow.tools.rosetta import collect_scores
++from Workspace_Maxi.MLfBW.ProtFlow.protflow.tools.rosetta import collect_scores
+ 
+ 
+ def _write_rosetta_output(tmp_path, raw_description: str, scorefile_name: str) -> None:
+diff --git a/tests/pytest/test_runners.py b/tests/pytest/test_runners.py
+index c21a703..af54e3b 100644
+--- a/tests/pytest/test_runners.py
++++ b/tests/pytest/test_runners.py
+@@ -4,13 +4,13 @@ import pytest
+ from types import SimpleNamespace
+ from unittest.mock import patch
+ 
+-from protflow.runners import Runner
++from Workspace_Maxi.MLfBW.ProtFlow.protflow.runners import Runner
+ 
+ 
+ # dependencies
+ 
+ # custom
+-from protflow.runners import prepend_cmd, regex_expand_options_flags, expand_options_flags, options_flags_to_string
++from Workspace_Maxi.MLfBW.ProtFlow.protflow.runners import prepend_cmd, regex_expand_options_flags, expand_options_flags, options_flags_to_string
+ 
+ ####################### variables ##############################
+ test_opts2 = "-out:path:all /home/mabr3112/projects/riff_diff/rad/diffusion/nnewpot_d5_dw50/fastrelax -in:file:s /home/mabr3112/projects/riff_diff/rad/diffusion/nnewpot_d5_dw50/esm/output_pdbs/D6-A0-C19-B0_0001_0008.pdb -out:prefix r0005_ -out:file:scorefile r0005_D6-A0-C19-B0_0001_0008_score.json -out:file:scorefile_format json -parser:protocol=/home/mabr3112/ProtFlow/protflow/tools/runners_auxiliary_scripts//fastrelax_sap.xml -beta"
+@@ -125,7 +125,7 @@ class DummyProcessError(Exception):
+ 
+ def test_wrap_run_process_error_is_wrapped_even_outside_collect_scores(monkeypatch):
+     # Ensure the decorator sees our DummyProcessError as ProcessError
+-    import protflow.runners as runners_mod
++    import Workspace_Maxi.MLfBW.ProtFlow.protflow.runners as runners_mod
+     monkeypatch.setattr(runners_mod, "ProcessError", DummyProcessError, raising=True)
+ 
+     class R(Runner):
+diff --git a/tests/pytest/test_sigmadock.py b/tests/pytest/test_sigmadock.py
+index 74ee61a..cdbd55e 100644
+--- a/tests/pytest/test_sigmadock.py
++++ b/tests/pytest/test_sigmadock.py
+@@ -10,7 +10,7 @@ import pandas as pd
+ import pytest
+ from unittest.mock import patch, MagicMock
+ 
+-from protflow.tools.sigmadock import SigmaDock, collect_scores
++from Workspace_Maxi.MLfBW.ProtFlow.protflow.tools.sigmadock import SigmaDock, collect_scores
+ 
+ 
+ # ---------------------------------------------------------------------------
+diff --git a/tests/pytest/test_split_complex.py b/tests/pytest/test_split_complex.py
+index 9b8aad1..f89b9fb 100644
+--- a/tests/pytest/test_split_complex.py
++++ b/tests/pytest/test_split_complex.py
+@@ -3,7 +3,7 @@ import os
+ import textwrap
+ import pytest
+ 
+-from protflow.utils.biopython_tools import split_complex
++from Workspace_Maxi.MLfBW.ProtFlow.protflow.utils.biopython_tools import split_complex
+ 
+ 
+ def _sdf_atom_count(sdf_path) -> int:
+diff --git a/tests/runner_tests.py b/tests/runner_tests.py
+index 8bce4a5..1ecb93b 100644
+--- a/tests/runner_tests.py
++++ b/tests/runner_tests.py
+@@ -7,31 +7,31 @@ import pandas as pd
+ 
+ 
+ # import jobstarters
+-from protflow.jobstarters import SbatchArrayJobstarter
+-from protflow.jobstarters import LocalJobStarter
++from Workspace_Maxi.MLfBW.ProtFlow.protflow.jobstarters import SbatchArrayJobstarter
++from Workspace_Maxi.MLfBW.ProtFlow.protflow.jobstarters import LocalJobStarter
+ 
+ 
+ # customs
+-from protflow.poses import Poses
++from Workspace_Maxi.MLfBW.ProtFlow.protflow.poses import Poses
+ 
+ # import runners
+ #from protflow.runners.protein_generator import ProteinGenerator
+-from protflow.tools.ligandmpnn import LigandMPNN
+-from protflow.tools.rosetta import Rosetta
+-from protflow.tools.rfdiffusion import RFdiffusion
+-from protflow.tools.attnpacker import AttnPacker
+-from protflow.tools.esmfold import ESMFold
+-from protflow.tools.colabfold import Colabfold
+-from protflow.tools.minifold import Minifold
++from Workspace_Maxi.MLfBW.ProtFlow.protflow.tools.ligandmpnn import LigandMPNN
++from Workspace_Maxi.MLfBW.ProtFlow.protflow.tools.rosetta import Rosetta
++from Workspace_Maxi.MLfBW.ProtFlow.protflow.tools.rfdiffusion import RFdiffusion
++from Workspace_Maxi.MLfBW.ProtFlow.protflow.tools.attnpacker import AttnPacker
++from Workspace_Maxi.MLfBW.ProtFlow.protflow.tools.esmfold import ESMFold
++from Workspace_Maxi.MLfBW.ProtFlow.protflow.tools.colabfold import Colabfold
++from Workspace_Maxi.MLfBW.ProtFlow.protflow.tools.minifold import Minifold
+ 
+ # import metrics
+-from protflow.metrics.protparam import ProtParam
+-from protflow.metrics.tmscore import TMalign
+-from protflow.metrics.tmscore import TMscore
++from Workspace_Maxi.MLfBW.ProtFlow.protflow.metrics.protparam import ProtParam
++from Workspace_Maxi.MLfBW.ProtFlow.protflow.metrics.tmscore import TMalign
++from Workspace_Maxi.MLfBW.ProtFlow.protflow.metrics.tmscore import TMscore
+ 
+ # import config
+-from protflow import config
+-from protflow.utils.plotting import sequence_logo
++from Workspace_Maxi.MLfBW.ProtFlow.protflow import config
++from Workspace_Maxi.MLfBW.ProtFlow.protflow.utils.plotting import sequence_logo
+ 
+ 
+ #TODO: @Adrian: For Attnpacker, ligandmpnn and AF please write Tutorials as Jupyter Notebooks in 'examples' Folder.

@@ -1,0 +1,296 @@
+"""
+DynamicMPNN Module
+==================
+
+ProtFlow runner for DynamicMPNN multi-state inverse folding.
+
+DynamicMPNN takes two conformational states of a protein and designs
+sequences compatible with both. It uses a Hydra-based CLI
+(``dynamicmpnn-evaluate``) that accepts two PDB paths with chain IDs,
+a model checkpoint, and outputs FASTA sequences.
+
+This runner wraps that CLI so it can be used inside ProtFlow pipelines
+with standard Poses / JobStarter / RunnerOutput integration.
+"""
+
+import os
+import logging
+from glob import glob
+
+import pandas as pd
+
+from protflow.runners import Runner, RunnerOutput, prepend_cmd
+from protflow.poses import Poses
+from protflow.jobstarters import JobStarter
+
+logger = logging.getLogger(__name__)
+
+DYNAMICMPNN_DEFAULT_CHECKPOINT = "multi_chain_reload.ckpt"
+
+
+class DynamicMPNN(Runner):
+    """
+    ProtFlow runner for DynamicMPNN multi-state sequence design.
+
+    Parameters
+    ----------
+    python_path : str, optional
+        Path to the python binary inside the dynamicmpnn conda env.
+    script_path : str, optional
+        Path to the ``dynamicmpnn-evaluate`` entry-point script.
+        If None, the runner calls ``dynamicmpnn-evaluate`` directly
+        (assumed to be on PATH via pre_cmd).
+    checkpoint : str, optional
+        Path to a DynamicMPNN model checkpoint (``.ckpt``).
+    pre_cmd : str, optional
+        Shell command prepended to every job (e.g. ``conda activate dynamicmpnn``).
+    jobstarter : JobStarter, optional
+        Default jobstarter for this runner.
+    """
+
+    def __init__(
+        self,
+        python_path: str | None = None,
+        script_path: str | None = None,
+        checkpoint: str | None = None,
+        pre_cmd: str | None = None,
+        jobstarter: JobStarter | None = None,
+    ):
+        self.python_path = python_path
+        self.script_path = script_path
+        self.checkpoint = checkpoint
+        self.pre_cmd = pre_cmd
+        self.jobstarter = jobstarter
+        self.index_layers = 2
+
+    def __str__(self):
+        return "dynamicmpnn"
+
+    def run(
+        self,
+        poses: Poses,
+        prefix: str,
+        state1_col: str = "poses",
+        state1_chain: str = "A",
+        state2_col: str = "state2_pdb",
+        state2_chain: str = "A",
+        num_seqs: int = 10,
+        checkpoint: str | None = None,
+        device: str = "auto",
+        jobstarter: JobStarter | None = None,
+        options: str = "",
+        overwrite: bool = False,
+    ) -> Poses:
+        """
+        Run DynamicMPNN on each pose pair.
+
+        For every row in ``poses.df``, a ``dynamicmpnn-evaluate`` command
+        is built using the two structure columns and submitted via the
+        jobstarter.  Output FASTA files are collected and merged back
+        into poses.
+
+        Parameters
+        ----------
+        poses : Poses
+            Input poses.  Must contain columns for both states.
+        prefix : str
+            Column prefix and subdirectory name.
+        state1_col : str
+            Column in ``poses.df`` with paths to state-1 PDBs.
+        state1_chain : str
+            Chain ID to use for state 1.
+        state2_col : str
+            Column in ``poses.df`` with paths to state-2 PDBs.
+        state2_chain : str
+            Chain ID to use for state 2.
+        num_seqs : int
+            Number of sequences to sample per design.
+        checkpoint : str, optional
+            Override the checkpoint set at init time.
+        device : str
+            ``auto``, ``cuda``, or ``cpu``.
+        jobstarter : JobStarter, optional
+            Override the default jobstarter.
+        options : str
+            Extra Hydra overrides appended to the command.
+        overwrite : bool
+            Re-run even if a scorefile from a previous run exists.
+
+        Returns
+        -------
+        Poses
+            Updated poses with ``{prefix}_location`` pointing to per-
+            sequence FASTA files and ``{prefix}_sequence`` columns.
+        """
+        work_dir, jobstarter = self.generic_run_setup(
+            poses=poses,
+            prefix=prefix,
+            jobstarters=[jobstarter, self.jobstarter, poses.default_jobstarter],
+        )
+
+        scorefile = os.path.join(work_dir, f"dynamicmpnn_scores.{poses.storage_format}")
+        if (scores := self.check_for_existing_scorefile(scorefile=scorefile, overwrite=overwrite)) is not None:
+            logger.info(f"Found existing scorefile at {scorefile}. Returning previous results.")
+            return RunnerOutput(poses=poses, results=scores, prefix=prefix, index_layers=self.index_layers).return_poses()
+
+        ckpt = checkpoint or self.checkpoint
+        if ckpt:
+            ckpt = os.path.abspath(ckpt)
+
+        cmds = []
+        for _, row in poses.df.iterrows():
+            design_name = row["poses_description"]
+            out_dir = os.path.join(work_dir, design_name)
+            os.makedirs(out_dir, exist_ok=True)
+
+            s1_pdb = os.path.abspath(row[state1_col])
+            s2_pdb = os.path.abspath(row[state2_col])
+
+            cmd = self._build_cmd(
+                s1_pdb=s1_pdb,
+                s1_chain=state1_chain,
+                s2_pdb=s2_pdb,
+                s2_chain=state2_chain,
+                num_seqs=num_seqs,
+                checkpoint=ckpt,
+                device=device,
+                out_dir=out_dir,
+                extra_opts=options,
+            )
+            cmds.append(cmd)
+
+        if self.pre_cmd:
+            cmds = prepend_cmd(cmds=cmds, pre_cmd=self.pre_cmd)
+
+        jobstarter.start(
+            cmds=cmds,
+            jobname=f"dmpnn_{prefix}",
+            wait=True,
+            output_path=f"{work_dir}/",
+        )
+
+        scores = self.collect_scores(work_dir=work_dir, poses=poses)
+
+        if len(scores.index) < len(poses.df.index):
+            raise RuntimeError(
+                f"DynamicMPNN produced {len(scores)} results for {len(poses.df)} inputs. Some runs may have crashed."
+            )
+
+        self.save_runner_scorefile(scores=scores, scorefile=scorefile)
+        logger.info(f"DynamicMPNN finished. Returning {len(scores)} poses.")
+        return RunnerOutput(poses=poses, results=scores, prefix=prefix, index_layers=self.index_layers).return_poses()
+
+    def _build_cmd(
+        self,
+        s1_pdb: str,
+        s1_chain: str,
+        s2_pdb: str,
+        s2_chain: str,
+        num_seqs: int,
+        checkpoint: str | None,
+        device: str,
+        out_dir: str,
+        extra_opts: str = "",
+    ) -> str:
+        parts = []
+
+        if self.python_path and self.script_path:
+            parts.append(f"{self.python_path} {self.script_path}")
+        elif self.script_path:
+            parts.append(self.script_path)
+        else:
+            parts.append("dynamicmpnn-evaluate")
+
+        parts.append(f"eval.targets.state1.pdb_path={s1_pdb}")
+        parts.append(f"eval.targets.state1.chain_id={s1_chain}")
+        parts.append(f"eval.targets.state2.pdb_path={s2_pdb}")
+        parts.append(f"eval.targets.state2.chain_id={s2_chain}")
+        parts.append(f"eval.num_samples={num_seqs}")
+        parts.append(f"eval.device={device}")
+
+        if checkpoint:
+            parts.append(f"eval.model_ref={checkpoint}")
+
+        parts.append(f"hydra.run.dir={out_dir}")
+
+        if extra_opts:
+            parts.append(extra_opts)
+
+        return " ".join(parts)
+
+    def collect_scores(self, work_dir: str, poses: Poses) -> pd.DataFrame:
+        """
+        Collect DynamicMPNN outputs into a DataFrame.
+
+        For each design subdirectory, reads ``samples/samples.fasta``
+        (or ``samples/samples.csv``) produced by DynamicMPNN and splits
+        multi-sequence output into individual FASTA files.
+
+        Returns a DataFrame with columns ``description``, ``location``,
+        and ``sequence``.
+        """
+        rows = []
+        seq_dir = os.path.join(work_dir, "seqs")
+        os.makedirs(seq_dir, exist_ok=True)
+
+        for _, row in poses.df.iterrows():
+            design_name = row["poses_description"]
+            design_dir = os.path.join(work_dir, design_name)
+
+            fasta_path = os.path.join(design_dir, "samples", "samples.fasta")
+            csv_path = os.path.join(design_dir, "samples", "samples.csv")
+
+            if os.path.isfile(csv_path):
+                df = pd.read_csv(csv_path)
+                for _, sr in df.iterrows():
+                    seq_id = sr["sequence_id"]
+                    seq = sr["sequence"]
+                    name = f"{design_name}_{seq_id}"
+                    fa_out = os.path.join(seq_dir, f"{name}.fa")
+                    with open(fa_out, "w", encoding="UTF-8") as fh:
+                        fh.write(f">{name}\n{seq}\n")
+                    rows.append({
+                        "description": name,
+                        "location": fa_out,
+                        "sequence": seq,
+                    })
+            elif os.path.isfile(fasta_path):
+                with open(fasta_path, "r", encoding="UTF-8") as fh:
+                    current_id = None
+                    current_seq_lines = []
+                    for line in fh:
+                        line = line.strip()
+                        if line.startswith(">"):
+                            if current_id is not None:
+                                seq = "".join(current_seq_lines)
+                                name = f"{design_name}_{current_id}"
+                                fa_out = os.path.join(seq_dir, f"{name}.fa")
+                                with open(fa_out, "w", encoding="UTF-8") as fw:
+                                    fw.write(f">{name}\n{seq}\n")
+                                rows.append({
+                                    "description": name,
+                                    "location": fa_out,
+                                    "sequence": seq,
+                                })
+                            current_id = line[1:].split()[0]
+                            current_seq_lines = []
+                        else:
+                            current_seq_lines.append(line)
+                    if current_id is not None:
+                        seq = "".join(current_seq_lines)
+                        name = f"{design_name}_{current_id}"
+                        fa_out = os.path.join(seq_dir, f"{name}.fa")
+                        with open(fa_out, "w", encoding="UTF-8") as fw:
+                            fw.write(f">{name}\n{seq}\n")
+                        rows.append({
+                            "description": name,
+                            "location": fa_out,
+                            "sequence": seq,
+                        })
+            else:
+                logger.warning(f"No DynamicMPNN output found for {design_name} in {design_dir}")
+
+        if not rows:
+            raise FileNotFoundError(f"No DynamicMPNN outputs found in {work_dir}")
+
+        return pd.DataFrame(rows)

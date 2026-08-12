@@ -1,0 +1,230 @@
+# PILOT variant  — a faithful ~37%-scale preview of the production
+# protein-only config. IDENTICAL to pdl1_pcna_protein_only.yaml in EVERY respect
+# (the 2026-07-19 changes: reuse 0.30, jaccard 0.15, dmpnn_nseq 32, apo_batch 12,
+# dmpnn_temperature 0.15, min_null_auc 0.60) EXCEPT sampling.holo_batch is reduced
+# 400->150 to validate the full path (through the AF2 paired-null gate + protein-
+# only evaluation) end-to-end at reduced GPU cost before committing a full run.
+# 150 backbones still yields enough gate-stage backbones for a valid paired null.
+# Throwaway artifact — regenerate by re-copying the production config if it drifts.
+#
+# Protein-only two-state benchmark for DynamicMPNN.
+#
+# PD-L1 and PCNA are retained only to make this configuration immediately
+# runnable with the existing inputs. The scientific object is the fully de novo
+# binder: one sequence, two mutually exclusive target-bound conformations.
+# There is no small molecule and no ligand-induced switching claim.
+
+holo_target:
+  pdb: "inputs/pdl1_igv.pdb"
+  sequence: >-
+    MTIECKFPVEKQLDLAALIVYWEMEDKNIIQFVHGEEDLKVQHSSYRQRARLLKDQL
+    SLGNAALQITDVKLQDAGVYRCMISYGGADYKRITVKVNA
+  contig: "A19-115,/0,80"
+  hotspots: "A56,A58,A113,A115"
+  binder_chain: "B"
+
+apo_target:
+  pdb: "inputs/pcna_A.pdb"
+  sequence: >-
+    MFEARLVQGSILKKVLEALKDLINEACWDISSSGVNLQSMDSSHVSLVQLTLRSEGF
+    DTYRCDRNLAMGVNLTSMSKILKCAGNEDIITLRAEDNADTLALVFEAPEKVSDYEMK
+    LMDLDVEQLGIPEQEYSCVVKMPSGEFARICRDLSHIGDAVVISCAKDGVKFSASGEL
+    GNGNIKLSQTSEEEAVTIEMNEPVQLTFALRYLNFFTKATPLSSTVTLSMSADVPLVV
+    EYKIADMGHLKYYLAPKI
+  hotspots: "A251,A252,A253,A255"
+  # RFD3 coordinate-noise standard deviation in Angstroms, not a fraction.
+  # Selected by calibration_proteins_partial_t_20260718_v1 using the
+  # predeclared backbone-level Wilson-lower-bound rule (9/12 backbones and
+  # 20/36 pairs passed the unmodified production geometry gate).
+  partial_t: 10.0
+
+labels:
+  holo_name: "PD-L1"
+  apo_name: "PCNA"
+  ligand_name: "none"
+
+geometry_gate:
+  enabled: true
+  # Never relax this in smoke: it catches an accidentally all-fixed RFD3 spec.
+  generation_sanity_min_binder_ca_rmsd: 0.25
+  interface_cutoff: 5.0
+  clash_cutoff: 2.5
+  min_binder_ca_rmsd: 1.0
+  max_binder_ca_rmsd: 8.0
+  # Overlap requirements are deliberately permissive: high interface
+  # reuse (0.65-1.0) forced the same binder positions to encode both interfaces,
+  # which starved the apo (PCNA) interface under the two-state tie (apo i_pae AUC
+  # 0.42, worse than scramble). Reuse min 0.60->0.30 permits lower-overlap pairs
+  # that are easier for one sequence to co-satisfy. jaccard 0.25->0.15 in step:
+  # a 30%-reuse pair has jaccard ~0.18, so a 0.25 jaccard floor would have vetoed
+  # exactly the pairs this change means to admit. Mutual exclusion is still
+  # enforced independently by min_target_target_clash_pairs (targets clash when
+  # both docked = can't bind both), so this relaxes "same surface", not "switch".
+  min_interface_jaccard: 0.15
+  min_interface_reuse_fraction: 0.30
+  min_target_target_clash_pairs: 5
+  min_interface_residues_per_state: 5
+
+# Integration-only thresholds. These preserve the contact, interface-reuse,
+# and mutual-exclusion checks, but do not require the tiny smoke sample to
+# demonstrate the conformational change expected from a production trajectory
+# ensemble. switch_pipeline.py applies these only with --smoke.
+smoke_geometry_gate:
+  min_binder_ca_rmsd: 0.0
+  min_interface_jaccard: 0.10
+
+# Controlled Step-1/Step-2-only sweep. One common set of state-1 backbones is
+# reused at every noise level; production geometry thresholds are never relaxed.
+geometry_calibration:
+  partial_t_values: [2.0, 5.0, 10.0, 15.0]
+  holo_batch: 12
+  apo_batch: 3
+  diffusion_batch_size: 3
+  designability_n_seqs: 2
+  designability_pre_af2_top_k: 1
+  designability_min_plddt: 0.0
+  designability_max_i_pae: 1.0
+  designability_min_i_ptm: 0.0
+
+dynamicmpnn:
+  conda_env: dynamicmpnn        # conda env holding the DynamicMPNN install
+  checkpoint: "DynamicMPNN/checkpoints/multi_chain_reload.ckpt"
+
+proteinmpnn_msd:
+  script: "ProteinMPNN/protein_mpnn_run.py"
+  helper_parse: "ProteinMPNN/helper_scripts/parse_multiple_chains.py"
+  helper_tied: "ProteinMPNN/helper_scripts/make_tied_positions_dict.py"
+  weights: "ProteinMPNN/vanilla_model_weights"
+  python: "~/.conda/envs/ligandmpnn_env/bin/python3"
+
+sampling:
+  # PILOT: holo_batch reduced 400->150 (only deviation from production). Enough
+  # backbones to reach the gate stage with a valid paired null, at ~37% cost.
+  holo_batch: 150
+  # State-2 (apo) trajectories per surviving holo backbone. In earlier runs
+  # only 53/332 holo backbones found any designable
+  # apo partner among their 6 trajectories — the apo partner search, not holo
+  # generation, is the funnel's tightest point. More trajectories = more diverse
+  # apo geometries per holo = more chances at a jointly-designable pair. Cost is
+  # linear in apo RFD3 partial-diffusion (the state-2 generation step).
+  apo_batch: 12
+  diffusion_batch_size: 10
+  lmpnn_nseq: 8
+  # Give the two-state solver more shots to find one
+  # sequence that co-satisfies both interfaces (state 2 is the starved side). MSD
+  # raised in lockstep — enforce_equal_method_budget requires equal nseq for a
+  # fair DynamicMPNN-vs-MSD comparison.
+  dmpnn_nseq: 32
+  mpnn_msd_nseq: 32
+  # DynamicMPNN sampling temperature. Raised slightly from the tool default 0.1
+  # to 0.15 for a bit more sequence diversity per design, giving the
+  # two-state search more shots at co-satisfying the starved apo interface.
+  # Bump toward 0.2-0.3 if 0.15 doesn't move apo discrimination.
+  dmpnn_temperature: 0.15
+  # Disabled for a fair equal-budget DynamicMPNN/MSD comparison.
+  adaptive_target: 0
+  adaptive_max_nseq: 32
+  final_boltz_samples: 1
+
+filtering:
+  lmpnn_top_k: 1
+  selfcons_plddt_threshold: 0
+  selfcons_iptm_threshold: 0
+  selfcons_rmsd_decoy_threshold: 0
+  max_backbones: 80
+  post_dmpnn_top_k: 0
+  post_af2_top_k: 80
+  post_af2_per_backbone: 1
+
+evaluation:
+  four_state_control: false
+  score_msd: true
+  n_scramble_controls: 80
+  require_null_separation: true
+  # This does NOT rescue a run whose apo i_pae AUC
+  # 0.42 is below chance and no honest bar passes it) — it only lets a FUTURE run
+  # clear the gate if the reuse/nseq changes push apo discrimination up to the
+  # 0.60-0.70 band instead of needing a full 0.70. The CI-low>0.5 "better than
+  # random" floor in passes_stop_go is kept, so anti-discriminative metrics still
+  # cannot pass. min_paired_win_rate default also lowered to 0.60 (paired_nulls.py).
+  min_null_auc: 0.60
+  min_null_pairs: 20
+  forward_only_af2_passes: true
+  enforce_equal_method_budget: true
+
+af2:
+  enabled: true
+  bindcraft_env: "/home/hd/hd_hd/hd_la299/.conda/envs/BindCraft"
+  params_dir: "tools_af2/localcolabfold/colabfold"
+  num_recycles: 3
+  # Queue latency dominates this pipeline (measured: 71% of wall time is
+  # queueing, median 113s queue vs 22s run), so fewer/bigger shards win.
+  # 5,120 predictions/gate: 86 shards at 60 -> 18 shards at 300.
+  # Walltime is derived from this in af2_runner.shard_walltime().
+  shard_size: 300
+  # The structure pass is ~8x slower per prediction; capped separately.
+  structures_shard_size: 60
+  designability:
+    enabled: true
+    # RFD3 reports strong self-consistency when several inverse-folded
+    # sequences are tried per backbone. ProteinMPNN is cheap, so generate eight
+    # but send only the best four by ProteinMPNN confidence to AF2.
+    n_seqs: 8
+    pre_af2_top_k: 4
+    min_plddt: 0.70
+    max_i_pae: 0.40
+    min_i_ptm: 0.40
+  state2_designability:
+    enabled: true
+    n_seqs: 8
+    pre_af2_top_k: 4
+    min_plddt: 0.70
+    max_i_pae: 0.40
+    min_i_ptm: 0.40
+    # Used only after the hard 1-8 A geometry gate and only as an AF2-score
+    # tie-break; designability remains the primary state-2 ranking key.
+    target_rmsd: 3.0
+  strict_abs:
+    plddt: 0.80
+    i_pae: 0.34
+    i_ptm: 0.50
+
+specificity:
+  enabled: false
+
+smoke:
+  # Exercise one-to-many state-2 lineage and its explicit collapse while keeping
+  # the integration test small. These are not production-quality sample sizes.
+  holo_batch: 6
+  apo_batch: 3
+  diffusion_batch_size: 2
+  designability_n_seqs: 2
+  designability_pre_af2_top_k: 1
+  designability_min_plddt: 0.0
+  designability_max_i_pae: 1.0
+  designability_min_i_ptm: 0.0
+  state2_designability_n_seqs: 2
+  state2_designability_pre_af2_top_k: 1
+  state2_designability_min_plddt: 0.0
+  state2_designability_max_i_pae: 1.0
+  state2_designability_min_i_ptm: 0.0
+  lmpnn_nseq: 2
+  dmpnn_nseq: 2
+  mpnn_msd_nseq: 2
+  adaptive_target: 0
+  adaptive_max_nseq: 2
+  final_boltz_samples: 1
+  lmpnn_top_k: 1
+  selfcons_plddt_threshold: 0
+  selfcons_iptm_threshold: 0
+  selfcons_rmsd_decoy_threshold: 0
+  max_backbones: 2
+  post_dmpnn_top_k: 0
+  post_af2_top_k: 2
+  post_af2_per_backbone: 1
+  require_null_separation: false
+  forward_only_af2_passes: false
+  min_null_pairs: 1
+  # Exercise the full comparison/evaluation path in smoke mode. The tiny sample
+  # is an integration test only and is intentionally not thesis-powered.
+  gate_only: false

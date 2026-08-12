@@ -1,0 +1,172 @@
+# switch-pipeline target configuration: template
+#
+# The complete set of keys read by the pipeline. See the configuration
+# reference in the README for the meaning of each key, and
+# configs/pdl1_pcna_protein_only.yaml for a worked example.
+#
+# Defining a new target pair:
+#
+#   1. Input files, placed in inputs/
+#      state-1 ("holo") target PDB: a single chain spanning the contig
+#      state-2 ("apo") target PDB: the second target
+#
+#   2. Sequences
+#      Boltz-2 requires both target sequences. Each must correspond to the
+#      residues present in the PDB rather than the full UniProt entry.
+#
+#   3. Contig and hotspots
+#      contig: "<fixed_target_range>,/0,<binder_length>"
+#        "A19-115" fixes chain A residues 19-115, "/0" is a chain break, and
+#        "80" (or a range such as "60-100") sets the binder length.
+#      hotspots: target residues to be contacted by the binder,
+#        solvent-exposed and proximal to the pocket, e.g. "A56,A58,A113,A115".
+#
+#   4. Execution
+#      python src/switch_pipeline.py --config configs/your_config.yaml --run-name my_run
+
+holo_target:
+  pdb: "inputs/YOUR_HOLO_TARGET.pdb"
+  sequence: "PASTE_HOLO_SEQUENCE_HERE"
+  contig: "A1-100,/0,60-100"      # fixed target range + binder length
+  hotspots: "A10,A20,A30"         # key contact residues
+  binder_chain: "B"               # binder chain id in the state-1 RFD3 output
+
+apo_target:
+  pdb: "inputs/YOUR_APO_TARGET.pdb"
+  sequence: "PASTE_APO_SEQUENCE_HERE"
+  hotspots: "A50,A51,A52"
+  # RFD3 partial-diffusion noise (Angstroms) applied to the state-1 binder to
+  # produce state 2. Dominates yield — calibrate it before production with
+  # slurm/submit_partial_t_calibration.sh rather than guessing.
+  partial_t: 10.0
+  # No contig: state 2 is derived from state 1, so binder length is inherited.
+
+# Display names for plots and CSV headers. Cosmetic — no logic keys off these.
+labels:
+  holo_name: "HOLO"
+  apo_name: "APO"
+  ligand_name: none               # protein-only; retained for compatibility
+
+# Pre-sequence gate on state PAIRS: the two states must reuse the same binder
+# surface while making the two targets mutually exclusive. Zero passing pairs
+# is a valid result and stops the run.
+geometry_gate:
+  enabled: true
+  generation_sanity_min_binder_ca_rmsd: 0.25  # catches "state 2 == state 1"
+  interface_cutoff: 5.0           # contact distance, A
+  clash_cutoff: 2.5               # clash distance, A
+  min_binder_ca_rmsd: 1.0         # required conformational change window, A
+  max_binder_ca_rmsd: 8.0
+  min_interface_jaccard: 0.15     # symmetric overlap of the interface sets
+  min_interface_reuse_fraction: 0.3
+  min_target_target_clash_pairs: 5   # mutual-exclusion proxy
+  min_interface_residues_per_state: 5
+
+dynamicmpnn:
+  conda_env: dynamicmpnn
+  checkpoint: "DynamicMPNN/checkpoints/multi_chain_reload.ckpt"
+
+# Optional comparator. Omit this whole block, or set evaluation.score_msd:
+# false, to skip ProteinMPNN-MSD entirely.
+proteinmpnn_msd:
+  script: "ProteinMPNN/protein_mpnn_run.py"
+  helper_parse: "ProteinMPNN/helper_scripts/parse_multiple_chains.py"
+  helper_tied: "ProteinMPNN/helper_scripts/make_tied_positions_dict.py"
+  weights: "ProteinMPNN/vanilla_model_weights"
+  python: "~/.conda/envs/ligandmpnn_env/bin/python3"
+
+sampling:
+  holo_batch: 400          # state-1 backbones; the main quality lever
+  apo_batch: 6             # state-2 candidates per surviving state-1 backbone.
+                           # >1 requires af2.state2_designability.enabled: true
+  diffusion_batch_size: 10 # per-GPU-call batch (memory-bound), not a total
+  lmpnn_nseq: 8            # proxy sequences per backbone for triage
+  dmpnn_nseq: 16           # DynamicMPNN sequences per backbone
+  mpnn_msd_nseq: 16        # keep == dmpnn_nseq for a fair comparison
+  dmpnn_temperature: 0.15  # higher = more sequence diversity per design
+  adaptive_target: 0       # top up under-performing backbones; 0 disables
+  adaptive_max_nseq: 16    # ceiling for that top-up
+  final_boltz_samples: 1   # Boltz diffusion samples per final state
+
+filtering:
+  lmpnn_top_k: 1                    # proxy seqs kept per backbone
+  selfcons_plddt_threshold: 0       # 0 = disabled (rank only)
+  selfcons_iptm_threshold: 0
+  selfcons_rmsd_decoy_threshold: 0
+  max_backbones: 60                 # backbones reaching sequence design
+  post_dmpnn_top_k: 0               # legacy proxy selection; 0 = score all
+  post_af2_top_k: 80                # designs forwarded from AF2 gate to Boltz
+  post_af2_per_backbone: 1          # diversity cap, applied before the above
+
+# AF2 initial-guess is the discriminative selector. With af2.enabled false the
+# pipeline falls back to a Boltz proxy that does NOT separate real designs from
+# scrambles on this problem — leave it on.
+af2:
+  enabled: true
+  bindcraft_env: "/path/to/.conda/envs/BindCraft"
+  params_dir: "tools_af2/localcolabfold/colabfold"
+  num_recycles: 3
+  shard_size: 300                   # predictions per Slurm array task
+  structures_shard_size: 60         # smaller: the structure pass is slower
+  designability:                    # state-1 pre-filter, right after generation
+    enabled: true
+    n_seqs: 8
+    pre_af2_top_k: 4
+    min_plddt: 0.7
+    max_i_pae: 0.4
+    min_i_ptm: 0.4
+  state2_designability:             # state-2 triage + one candidate per backbone
+    enabled: true
+    n_seqs: 8
+    pre_af2_top_k: 2                # dominates the AF2 budget; the main cost lever
+    min_plddt: 0.6                  # looser than state 1, the harder side
+    max_i_pae: 0.5
+    min_i_ptm: 0.3
+    target_rmsd: 3.0                # tie-break only, never the primary key
+  strict_abs:                       # strict tier, required in BOTH states
+    plddt: 0.8
+    i_pae: 0.34                     # ~10 A, the literature interface-PAE bar
+    i_ptm: 0.5
+
+evaluation:
+  n_scramble_controls: 40      # composition-matched scrambles; 0 disables the null
+  require_null_separation: true   # stop/go: skip expensive scoring if the null fails
+  min_null_auc: 0.70           # AUC each metric must reach against the null
+  min_null_pairs: 20           # minimum paired backbones for that test to count
+  forward_only_af2_passes: true
+  score_msd: true              # run the ProteinMPNN-MSD comparator
+  enforce_equal_method_budget: true
+  four_state_control: false    # off-diagonal controls (legacy ligand-era path)
+
+# Off-target decoy panel. Set enabled: true and list decoy_targets to check the
+# binder is not simply sticky.
+specificity:
+  enabled: false
+
+# Overrides used with --smoke: minimal counts, permissive filters. Gives a fast
+# end-to-end integration test that produces no meaningful science.
+smoke:
+  holo_batch: 6
+  apo_batch: 3
+  diffusion_batch_size: 2
+  lmpnn_nseq: 2
+  dmpnn_nseq: 2
+  mpnn_msd_nseq: 2
+  final_boltz_samples: 1
+  lmpnn_top_k: 1
+  max_backbones: 2
+  post_dmpnn_top_k: 0
+  post_af2_top_k: 2
+  post_af2_per_backbone: 1
+  designability_n_seqs: 2
+  designability_pre_af2_top_k: 1
+  state2_designability_n_seqs: 2
+  state2_designability_pre_af2_top_k: 1
+  require_null_separation: false
+  forward_only_af2_passes: false
+  min_null_pairs: 1
+
+# Geometry thresholds must be loosened at smoke counts or nothing survives.
+smoke_geometry_gate:
+  min_binder_ca_rmsd: 0.0
+  min_interface_jaccard: 0.1

@@ -1,0 +1,149 @@
+holo_target:
+  pdb: inputs/pdl1_igv.pdb
+  sequence: MTIECKFPVEKQLDLAALIVYWEMEDKNIIQFVHGEEDLKVQHSSYRQRARLLKDQL SLGNAALQITDVKLQDAGVYRCMISYGGADYKRITVKVNA
+  contig: A19-115,/0,80
+  hotspots: A56,A58,A113,A115
+  binder_chain: B
+apo_target:
+  pdb: inputs/pcna_A.pdb
+  sequence: MFEARLVQGSILKKVLEALKDLINEACWDISSSGVNLQSMDSSHVSLVQLTLRSEGF DTYRCDRNLAMGVNLTSMSKILKCAGNEDIITLRAEDNADTLALVFEAPEKVSDYEMK
+    LMDLDVEQLGIPEQEYSCVVKMPSGEFARICRDLSHIGDAVVISCAKDGVKFSASGEL GNGNIKLSQTSEEEAVTIEMNEPVQLTFALRYLNFFTKATPLSSTVTLSMSADVPLVV
+    EYKIADMGHLKYYLAPKI
+  hotspots: A251,A252,A253,A255
+  # contig: derived from pcna_A.pdb residue runs (it has gaps at 107-108,
+  # 187-190); binder length is inherited from holo_target.contig.
+labels:
+  holo_name: PD-L1
+  apo_name: PCNA
+  ligand_name: none
+geometry_gate:
+  enabled: true
+  generation_sanity_min_binder_ca_rmsd: 0.25
+  interface_cutoff: 5.0
+  clash_cutoff: 2.5
+  min_binder_ca_rmsd: 1.0
+  max_binder_ca_rmsd: 8.0
+  min_interface_jaccard: 0.15
+  min_interface_reuse_fraction: 0.3
+  min_target_target_clash_pairs: 5
+  min_interface_residues_per_state: 5
+smoke_geometry_gate:
+  min_binder_ca_rmsd: 0.0
+  min_interface_jaccard: 0.1
+geometry_calibration:
+  partial_t_values:
+  - 2.0
+  - 5.0
+  - 10.0
+  - 15.0
+  holo_batch: 12
+  apo_batch: 3
+  diffusion_batch_size: 3
+  designability_n_seqs: 2
+  designability_pre_af2_top_k: 1
+  designability_min_plddt: 0.0
+  designability_max_i_pae: 1.0
+  designability_min_i_ptm: 0.0
+dynamicmpnn:
+  conda_env: dynamicmpnn        # conda env holding the DynamicMPNN install
+  checkpoint: DynamicMPNN/checkpoints/multi_chain_reload.ckpt
+proteinmpnn_msd:
+  script: ProteinMPNN/protein_mpnn_run.py
+  helper_parse: ProteinMPNN/helper_scripts/parse_multiple_chains.py
+  helper_tied: ProteinMPNN/helper_scripts/make_tied_positions_dict.py
+  weights: ProteinMPNN/vanilla_model_weights
+  python: ~/.conda/envs/ligandmpnn_env/bin/python3
+sampling:
+  # Used for BOTH states: switch_pipeline_separate.generate_state is called twice
+  # with ctx.HOLO_N_BATCHES, so this is 800 state-1 + 800 state-2 = 1600 full RFD3
+  # trajectories. The canonical pipeline pays less here because its state 2 is
+  # partial diffusion from t~12 rather than a generation from scratch.
+  holo_batch: 800
+  diffusion_batch_size: 10
+  lmpnn_nseq: 8
+  dmpnn_nseq: 16
+  mpnn_msd_nseq: 16
+  dmpnn_temperature: 0.15
+  adaptive_target: 0
+  adaptive_max_nseq: 32
+  final_boltz_samples: 1
+filtering:
+  lmpnn_top_k: 1
+  selfcons_plddt_threshold: 0
+  selfcons_iptm_threshold: 0
+  selfcons_rmsd_decoy_threshold: 0
+  max_backbones: 80
+  post_dmpnn_top_k: 0
+  post_af2_top_k: 80
+  post_af2_per_backbone: 1
+evaluation:
+  four_state_control: false
+  score_msd: true
+  n_scramble_controls: 80
+  require_null_separation: false
+  min_null_auc: 0.6
+  min_null_pairs: 20
+  forward_only_af2_passes: false
+  enforce_equal_method_budget: true
+af2:
+  enabled: true
+  bindcraft_env: /home/hd/hd_hd/hd_la299/.conda/envs/BindCraft
+  params_dir: tools_af2/localcolabfold/colabfold
+  num_recycles: 3
+  shard_size: 300
+  structures_shard_size: 60
+  designability:
+    enabled: true
+    n_seqs: 8
+    pre_af2_top_k: 4
+    min_plddt: 0.7
+    max_i_pae: 0.4
+    min_i_ptm: 0.4
+  state2_designability:
+    enabled: true
+    n_seqs: 8
+    pre_af2_top_k: 2
+    min_plddt: 0.6
+    max_i_pae: 0.5
+    min_i_ptm: 0.3
+    target_rmsd: 3.0
+  strict_abs:
+    plddt: 0.8
+    i_pae: 0.34
+    i_ptm: 0.5
+specificity:
+  enabled: false
+smoke:
+  # No apo_batch: this variant sizes BOTH states from holo_batch (state 2 is a
+  # full generation, not partial diffusion off state 1), so an apo_batch key here
+  # would read as though it controlled something and does not.
+  holo_batch: 6
+  diffusion_batch_size: 2
+  designability_n_seqs: 2
+  designability_pre_af2_top_k: 1
+  designability_min_plddt: 0.0
+  designability_max_i_pae: 1.0
+  designability_min_i_ptm: 0.0
+  state2_designability_n_seqs: 2
+  state2_designability_pre_af2_top_k: 1
+  state2_designability_min_plddt: 0.0
+  state2_designability_max_i_pae: 1.0
+  state2_designability_min_i_ptm: 0.0
+  lmpnn_nseq: 2
+  dmpnn_nseq: 2
+  mpnn_msd_nseq: 2
+  adaptive_target: 0
+  adaptive_max_nseq: 2
+  final_boltz_samples: 1
+  lmpnn_top_k: 1
+  selfcons_plddt_threshold: 0
+  selfcons_iptm_threshold: 0
+  selfcons_rmsd_decoy_threshold: 0
+  max_backbones: 2
+  post_dmpnn_top_k: 0
+  post_af2_top_k: 2
+  post_af2_per_backbone: 1
+  require_null_separation: false
+  forward_only_af2_passes: false
+  min_null_pairs: 1
+  gate_only: false
